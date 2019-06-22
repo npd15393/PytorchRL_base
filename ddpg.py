@@ -9,8 +9,8 @@ dev=torch.device("cuda")
 dfloat= torch.cuda.FloatTensor
 env=gym.make("MountainCarContinuous-v0")
 BATCH_SIZE=32
-MEM_SIZE=10000
-EPOCHS = 50000
+MEM_SIZE=100000
+EPOCHS = 500000
 GAMMA=0.95
 
 ############################ Replay memory class #################################
@@ -251,13 +251,13 @@ class DDPGAgent:
             for _ in range(EPOCHS):
                 act=self.ddpg.get_action(current_state)
 
-                exp=env.step(act) # take action
+                exp=env.step(act.detach().numpy()) # take action
 
                 exp=exp[0:-1]
                 env.render()
                 # check if transition valid
                 if not exp[-1]:
-                    epi_rwd+=exp[-2]
+                    epi_rwd+=exp[1]
                     current_state=exp[0]
                     step_cnt=step_cnt+1
                 else:
@@ -265,9 +265,9 @@ class DDPGAgent:
                     break
 
 
-                if exp[-1]:
+                # if exp[-1]:
                    
-                    return
+                    # return
                     # current_state=env.reset()
                     # print('===========Epi length:'+str(step_cnt)+' Total rwd = '+str(epi_rwd)+'==============')
                     # step_cnt=0
