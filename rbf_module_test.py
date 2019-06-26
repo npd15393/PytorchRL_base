@@ -9,43 +9,48 @@ class fileReader:
         data_lst=self.data_obj.readlines()
         self.data=[list(map(float,d.rstrip().split(dlim))) for d in data_lst]
         self.labels=[d.pop(-1) for d in self.data]
+        # self.labels=[2*(d.pop(-1))-1 for d in self.data]
+        # self.labels=[[d,1-d] for d in self.labels]
+        self.labels=torch.tensor(self.labels,dtype=torch.long)
 
     def normalized_data(self,):
         ndata=np.array(self.data)
         d=np.mean(ndata,axis=0)
         s=np.std(ndata,axis=0)
 
-        return list((ndata-d)/s)
+        return list(((ndata-d)/s).astype(float))
 
 
 
 class RBF_classifier:
     def __init__(self):
         self.n_basis=15
-        self.n_outputs=1
+        self.n_outputs=2
         # self.wts=torch.randn(self.n_basis,self.n_outputs,device=device, requires_grad=True)
         self.n_features=8
         self.protos=torch.randn(self.n_features, self.n_basis)
-        self.beta=1
+        self.beta=0.1
         self.model = torch.nn.Sequential(
         torch.nn.Linear(self.n_basis,self.n_outputs),
         torch.nn.Softmax())
+        self.model=self.model.float()
 
-    def forward(self,data_in, cs = None):
+    def eval(self,data_in, cs = None):
         if cs==None:
             cs=self.protos
 
-        dat=torch.tensor(data_in)
+        dat=torch.tensor(data_in,dtype=torch.float)
         dat=dat.view(*dat.size(),1)
-        c=torch.tensor([cs]*len(data_in))
+        c=torch.tensor([cs]*len(data_in),dtype=torch.float)
         sh=c.size()
         c=c.view(len(data_in),sh[1],sh[2])
         c=c.transpose(dim0=1,dim1=2)
 
         out_hid=torch.exp(self.beta*(torch.norm((dat - c).abs(),2, 1)))
+
         # out=torch.sum(out_hid*self.wts, dim=1)
-        out=self.model(out_hid)
-        print(out)
+        out=self.model(torch.tensor(out_hid))
+
         return out
 
     # batch: features of data 
@@ -63,13 +68,13 @@ class RBF_classifier:
         while not stop:
             for i in range(len(batch)):
                 for j in range(n_clusters):
-                    cd=self.feature_dist(torch.tensor(clusters[j][0],dtype=torch.float64),torch.tensor(batch[i],dtype=torch.float64))
+                    cd=self.feature_dist(torch.tensor(clusters[j][0],dtype=torch.float),torch.tensor(batch[i],dtype=torch.float))
                     (mind,min_idx)=(mind,min_idx) if cd>mind else (cd, j)
                 clusters[min_idx].append(batch[i])
 
             hist=clusters
             cnt=cnt+1
-            print(cnt)
+            # print(cnt)
 
             stop=False
             # for c,h in zip(clusters,hist):
@@ -104,10 +109,10 @@ class RBF_classifier:
 
     # std of cluster c
     def cluster_std(self,c):
-        std=torch.tensor([0],dtype=torch.float64)
+        std=torch.tensor([0],dtype=torch.float)
         
         for i in range(1,len(c)):
-            std=std+torch.pow(self.feature_dist(torch.tensor(c[i]),torch.tensor(c[0])),2)
+            std=std+torch.pow(self.feature_dist(torch.tensor(c[i],dtype=torch.float),torch.tensor(c[0],dtype=torch.float)),2)
         return torch.pow(std,0.5)
 
     # euclidean dist bet two pts
@@ -117,21 +122,28 @@ class RBF_classifier:
     def train_step(self, batch, labels, opt):
         cs, stds = self.update_basis(batch)
         loss = torch.nn.CrossEntropyLoss()# self.forward(batch,cs)
-        grads=loss(self.forward(batch,self.protos), torch.tensor(labels,dtype=torch.float64))
+        # loss=torch.nn.LogSoftmax()
+        # u=self.eval(batch,self.protos)
+        # v= torch.tensor(labels)
+
+        grads=loss(self.eval(batch,self.protos), labels)
         opt.zero_grad()
         grads.backward()
         opt.step()
 
         # return statistics
-        return loss.item()
+        return grads
 
 rbf=RBF_classifier()
 f=fileReader("data0.txt",",")
 c=RBF_classifier()
-opt=torch.optim.SGD(c.model.parameters(),lr=0.001, momentum=0.9) 
-for epi in range(10):
-    l=c.train_step(f.data,f.labels,opt)
-    print(l)
+# opt=torch.optim.SGD(c.model.parameters(),lr=0.001, momentum=0.9) 
+# for epi in range(100):
+#     l=c.train_step(f.normalized_data(),f.labels,opt)
+#     print(l.data)
+
+# test kmeans
+
 
 # class RBF_regressor(torch.nn.module):
 #     def __init__(self):
