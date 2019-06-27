@@ -2,6 +2,9 @@ import torch
 import torch.optim as optim
 import numpy as np
 device = torch.device("cpu")
+import copy
+import collections
+compare = lambda x, y: collections.Counter(x) == collections.Counter(y)
 
 class fileReader:
     def __init__(self,filenm,dlim=None):
@@ -60,32 +63,43 @@ class RBF_classifier:
         current_centers=np.random.randint(0,len(batch),n_clusters)
 
         clusters=[[batch[i],] for i in current_centers]
-
-        mind=0
-        min_idx=0
+    
         stop=False
         cnt=0
+        hist=None
         while not stop:
             for i in range(len(batch)):
+                mind=self.feature_dist(torch.tensor(clusters[0][0],dtype=torch.float),torch.tensor(batch[i],dtype=torch.float))
+                min_idx=0
                 for j in range(n_clusters):
                     cd=self.feature_dist(torch.tensor(clusters[j][0],dtype=torch.float),torch.tensor(batch[i],dtype=torch.float))
                     (mind,min_idx)=(mind,min_idx) if cd>mind else (cd, j)
                 clusters[min_idx].append(batch[i])
 
-            hist=clusters
             cnt=cnt+1
             # print(cnt)
 
+            
             stop=False
-            # for c,h in zip(clusters,hist):
-                # stop=stop or not self.compare_clusters(c,h)
-            if cnt==10:
+            # if not hist==None:
+            #     for c,h in zip(clusters,hist):
+            #         stop=stop or self.compare_clusters(c,h)
+            if cnt==50:
                 break
+
+            # if cnt%2==0:
+            #     print('stds: '+str(sum([self.cluster_std(c) for c in clusters])))
+
+            hist=copy.deepcopy(clusters)
 
             # redefine centers
             for i in range(len(clusters)):
                 clusters[i]=[self.cluster_mean(clusters[i]),]
 
+            print('mean:')
+            print(clusters)
+
+        print(cnt)
         self.cluster_stds=[self.cluster_std(c) for c in clusters]
         self.protos=[list(c[0].data.numpy()) for c in clusters]
         # print(self.protos)
@@ -95,8 +109,9 @@ class RBF_classifier:
     # compare all points in cluster c and h
     def compare_clusters(self, c,h):
         fl=True
+
         for e in range(len(c)):
-            fl=fl and torch.equal(c[e],h[e])
+            fl=fl and compare(c[e],h[e])
         return fl
 
     # compute mean of a cluster
@@ -109,8 +124,10 @@ class RBF_classifier:
 
     # std of cluster c
     def cluster_std(self,c):
+        # g=[list(c[0].data.numpy()) for c in clusters]
+        # print(g)
         std=torch.tensor([0],dtype=torch.float)
-        
+
         for i in range(1,len(c)):
             std=std+torch.pow(self.feature_dist(torch.tensor(c[i],dtype=torch.float),torch.tensor(c[0],dtype=torch.float)),2)
         return torch.pow(std,0.5)
@@ -143,7 +160,8 @@ c=RBF_classifier()
 #     print(l.data)
 
 # test kmeans
-
+c.update_basis(f.data)
+print(c.protos)
 
 # class RBF_regressor(torch.nn.module):
 #     def __init__(self):
