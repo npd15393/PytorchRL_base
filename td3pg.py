@@ -170,14 +170,16 @@ class ModelFactory:
 
     def get_action(self,st,targ=False):
         state = torch.from_numpy(st).float()
-        return self.tactor(state) if targ else self.actor(state)
+        v=self.tactor(state) if targ else self.actor(state)
+        return v.detach()
 
     def get_noisy_action(self,st,targ=False):
         state = torch.from_numpy(st).float()
         noise=torch.tensor(self.noise_model.noise(),dtype=torch.float)
         # print('noise: '+str(noise))
         act=self.tactor(state) if targ else self.actor(state)
-        return torch.clamp(act.add(noise),min=-1.0,max=1.0)
+        clipped_act=torch.clamp(act.add(noise),min=-1.0,max=1.0)
+        return clipped_act.detach()
 
     def get_q1(self, st, targ=False, a=None):
         state = torch.from_numpy(st).float()
@@ -285,17 +287,17 @@ class TD3PGAgent:
             s=exp[i][0]
             a=exp[i][1] #action to apply to learning critic
             s_=exp[i][2]
-            r=0.1*exp[i][3]
+            r=exp[i][3]
             done=exp[i][4]
 
             # a_=self.td3.get_noisy_action(s_,True) # noisy action for next state
 
             # q update
             ss.append(s)
-            acts.append(a.detach().numpy())
+            acts.append(a.numpy())
             
             q_n=self.td3.get_q_ue(s_,True)
-            q_targ=0.1*r+GAMMA*q_n if not done else r
+            q_targ=r+GAMMA*q_n if not done else r
             # print('prev q '+str((s,a))+' : '+str(self.get_Q(s,a,self.Q)))
             q_s1=self.td3.get_q1(s,False,a)
             q_s2=self.td3.get_q2(s,False,a)
@@ -329,28 +331,12 @@ class TD3PGAgent:
         q2=self.td3.get_q2(ss,False,torch.from_numpy(acts).float())
         q=self.td3.get_q1(ss)
         als=-q.mean()
+        # print('als:'+str(als))
 
         torch.nn.utils.clip_grad_norm(self.td3.critic1.parameters(), 1)
         torch.nn.utils.clip_grad_norm(self.td3.critic2.parameters(), 1)
         torch.nn.utils.clip_grad_norm(self.td3.actor.parameters(), 1)
         
-        # critic update
-        self.td3.critic1_opt.zero_grad()
-        ls1.backward()
-        # self.td3.critic1.grads()
-        self.td3.critic1_opt.step()
-        
-        self.td3.critic2_opt.zero_grad()
-        ls2.backward()
-        # self.td3.critic2.grads()
-        self.td3.critic2_opt.step()
-        
-        # update target critics
-        nr=rand.random()
-        if nr<0.1: 
-            self.td3.hard_update(self.td3.critic1,self.td3.tcritic1)
-            self.td3.hard_update(self.td3.critic2,self.td3.tcritic2)
-
         # actor update
         self.td3.actor_opt.zero_grad()
         als.backward()
@@ -358,10 +344,30 @@ class TD3PGAgent:
         self.td3.actor_opt.step()
 
         # update target actor
-        nr=rand.random()
-        if nr<0.1: 
-            self.td3.hard_update(self.td3.actor,self.td3.tactor)
+        # nr=rand.random()
+        # if nr<0.1: 
+        self.td3.soft_update(self.td3.actor,self.td3.tactor)
 
+        # critic update
+        self.td3.critic1_opt.zero_grad()
+        # print('ls1: '+str(ls1))
+        ls1.backward()
+        # self.td3.critic1.grads()
+        self.td3.critic1_opt.step()
+        
+        self.td3.critic2_opt.zero_grad()
+        # print('ls2: '+str(ls2))
+        ls2.backward()
+        # self.td3.critic2.grads()
+        self.td3.critic2_opt.step()
+        # print('#########')
+        # update target critics
+        # nr=rand.random()
+        # if nr<0.1: 
+        self.td3.soft_update(self.td3.critic1,self.td3.tcritic1)
+        self.td3.soft_update(self.td3.critic2,self.td3.tcritic2)
+
+        
         return max_del
 
     def train(self):
@@ -370,11 +376,11 @@ class TD3PGAgent:
         step_cnt=0
         BPerr=[]
 
-        for epi in range(100000):
+        for epi in range(50000):
             act=self.td3.get_action_random()
 
             # print(act)
-            exp=env.step(act.detach().numpy()) # take action
+            exp=env.step(act.numpy()) # take action
             # env.render()
             exp=(current_state,act)+exp[0:-1]
             # self.epsilon=self.epsilon*0.995
@@ -396,7 +402,7 @@ class TD3PGAgent:
             act=self.td3.get_noisy_action(current_state,True)
 
             # print(act)
-            exp=env.step(act.detach().numpy()) # take action
+            exp=env.step(act.numpy()) # take action
             # env.render()
             exp=(current_state,act)+exp[0:-1]
             # self.epsilon=self.epsilon*0.995
@@ -436,7 +442,7 @@ class TD3PGAgent:
             step_cnt=0
             for _ in range(EPOCHS):
                 act=self.td3.get_action(current_state)
-                print(act)
+                # print(act)
                 exp=env.step(act.detach().numpy()) # take action
 
                 exp=exp[0:-1]
